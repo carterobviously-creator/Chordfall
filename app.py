@@ -27,7 +27,7 @@ def list_checkpoints():
     return items
 
 
-def do_train(steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, layers, seed):
+def do_train(steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, layers, seed, device_pref):
     steps = int(steps)
     batch_size = int(batch_size)
     seq_len = int(seq_len)
@@ -53,6 +53,7 @@ def do_train(steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, la
         hidden=hidden,
         layers=layers,
         seed=seed,
+        device_preference=device_pref,
     )
 
     with open(meta_path, "r", encoding="utf-8") as f:
@@ -63,6 +64,7 @@ def do_train(steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, la
         f"Checkpoint: {ckpt_path}\n"
         f"Meta: {meta_path}\n"
         f"Log: {log_path}\n"
+        f"Device: {meta.get('device')}\n"
         f"Params: {meta['model']}\n"
     )
     return summary, ckpt_path
@@ -104,6 +106,7 @@ with gr.Blocks(title="Chordfall (Prototype)") as demo:
     )
 
     with gr.Tab("Train"):
+        device_pref = gr.Dropdown(["auto", "cuda", "cpu"], value="auto", label="Device")
         steps = gr.Slider(100, 20000, value=1500, step=50, label="Training steps (more = better)")
         batch_size = gr.Slider(1, 64, value=8, step=1, label="Batch size")
         seq_len = gr.Slider(128, 4096, value=1024, step=128, label="Sequence length (samples)")
@@ -115,12 +118,12 @@ with gr.Blocks(title="Chordfall (Prototype)") as demo:
         seed = gr.Number(value=0, precision=0, label="Seed (0 = random)")
 
         train_btn = gr.Button("Train")
-        train_out = gr.Textbox(label="Training result", lines=8)
+        train_out = gr.Textbox(label="Training result", lines=9)
         ckpt_out = gr.Textbox(label="Checkpoint path (copy into Generate tab)")
 
         train_btn.click(
             fn=do_train,
-            inputs=[steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, layers, seed],
+            inputs=[steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, layers, seed, device_pref],
             outputs=[train_out, ckpt_out],
         )
 
@@ -189,9 +192,8 @@ with gr.Blocks(title="Chordfall (Prototype)") as demo:
 
     gr.Markdown(
         "### Notes\n"
-        "- This is a prototype: it will sound noisy/lo-fi at first.\n"
-        "- Train longer (steps) to improve coherence.\n"
-        "- Keep SR at 8000–16000 for speed.\n"
+        "- This is a prototype: it may sound noisy/lo-fi at first.\n"
+        "- If you have an NVIDIA GPU, set Device=CUDA in Train tab and install a CUDA PyTorch build.\n"
     )
 
 

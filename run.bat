@@ -18,4 +18,9 @@ call .venv\Scripts\activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 
+echo.
+echo NOTE: For GPU training on NVIDIA, install a CUDA-enabled PyTorch build:
+echo   https://pytorch.org/get-started/locally/
+echo.
+
 python app.py
