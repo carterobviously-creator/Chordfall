@@ -27,7 +27,7 @@ def list_checkpoints():
     return items
 
 
-def do_train(steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, layers, seed, device_pref):
+def do_train(steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, layers, seed, device_pref, source, genre, dataset_folder):
     steps = int(steps)
     batch_size = int(batch_size)
     seq_len = int(seq_len)
@@ -40,7 +40,7 @@ def do_train(steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, la
 
     run_id = time.strftime("%Y%m%d-%H%M%S")
     out_dir = os.path.join(RUNS_DIR, run_id)
-    ensure_dir(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
 
     meta_path, ckpt_path, log_path = train_model(
         out_dir=out_dir,
@@ -54,6 +54,9 @@ def do_train(steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, la
         layers=layers,
         seed=seed,
         device_preference=device_pref,
+        source=source,
+        genre=genre,
+        dataset_folder=(dataset_folder or None),
     )
 
     with open(meta_path, "r", encoding="utf-8") as f:
@@ -65,6 +68,8 @@ def do_train(steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, la
         f"Meta: {meta_path}\n"
         f"Log: {log_path}\n"
         f"Device: {meta.get('device')}\n"
+        f"Source: {meta.get('source')} genre={meta.get('genre')}\n"
+        f"Dataset WAVs: {meta.get('dataset_wav_count')}\n"
         f"Params: {meta['model']}\n"
     )
     return summary, ckpt_path
@@ -100,31 +105,46 @@ with gr.Blocks(title="Chordfall (Prototype)") as demo:
     gr.Markdown(
         "# Chordfall (Prototype)\n"
         "A tiny from-scratch audio generator + DSP vocoder.\n\n"
-        "- No dataset required: trains on synthetic chord/tone audio.\n"
-        "- Model: small GRU over µ-law encoded waveform.\n"
-        "- Vocoder: classic multi-band channel vocoder (DSP, no pretrained model).\n"
+        "- Can train without datasets (procedural music synth).\n"
+        "- Optional: train on a folder of WAVs (ex: NSynth subset).\n"
     )
 
     with gr.Tab("Train"):
         device_pref = gr.Dropdown(["auto", "cuda", "cpu"], value="auto", label="Device")
-        steps = gr.Slider(100, 20000, value=1500, step=50, label="Training steps (more = better)")
+        source = gr.Dropdown(
+            ["synthetic_music", "synthetic_basic", "dataset", "mixed"],
+            value="synthetic_music",
+            label="Source",
+        )
+        genre = gr.Dropdown(["mix", "house", "trap", "lofi", "dnb", "ambient"], value="mix", label="Synthetic genre")
+        dataset_folder = gr.Textbox(value="datasets/nsynth/audio", label="Dataset folder (WAVs) when Source=dataset/mixed")
+
+        steps = gr.Slider(100, 20000, value=2000, step=50, label="Training steps")
         batch_size = gr.Slider(1, 64, value=8, step=1, label="Batch size")
         seq_len = gr.Slider(128, 4096, value=1024, step=128, label="Sequence length (samples)")
         sr = gr.Dropdown([8000, 12000, 16000, 22050], value=16000, label="Sample rate")
-        seconds_per_example = gr.Slider(0.25, 4.0, value=1.0, step=0.25, label="Synthetic clip length (seconds)")
+        seconds_per_example = gr.Slider(0.25, 8.0, value=2.0, step=0.25, label="Clip length (seconds)")
         lr = gr.Slider(1e-5, 5e-3, value=5e-4, step=1e-5, label="Learning rate")
         hidden = gr.Slider(32, 512, value=128, step=32, label="Hidden size")
         layers = gr.Slider(1, 4, value=2, step=1, label="GRU layers")
         seed = gr.Number(value=0, precision=0, label="Seed (0 = random)")
 
         train_btn = gr.Button("Train")
-        train_out = gr.Textbox(label="Training result", lines=9)
-        ckpt_out = gr.Textbox(label="Checkpoint path (copy into Generate tab)")
+        train_out = gr.Textbox(label="Training result", lines=10)
+        ckpt_out = gr.Textbox(label="Checkpoint path")
 
         train_btn.click(
             fn=do_train,
-            inputs=[steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, layers, seed, device_pref],
+            inputs=[steps, batch_size, seq_len, sr, seconds_per_example, lr, hidden, layers, seed, device_pref, source, genre, dataset_folder],
             outputs=[train_out, ckpt_out],
+        )
+
+        gr.Markdown(
+            "### Download NSynth subset (optional)\n"
+            "Run this in a terminal (after run.bat made the venv):\n\n"
+            "```bat\n"
+            ".venv\\Scripts\\python scripts\\download_nsynth.py --out datasets\\nsynth --limit 2000\n"
+            "```\n"
         )
 
     with gr.Tab("Generate"):
@@ -138,9 +158,9 @@ with gr.Blocks(title="Chordfall (Prototype)") as demo:
 
         ckpt_list.change(pick_ckpt, inputs=[ckpt_list], outputs=[ckpt_path])
 
-        seconds = gr.Slider(0.5, 10.0, value=3.0, step=0.5, label="Seconds to generate")
-        sr2 = gr.Dropdown([8000, 12000, 16000, 22050], value=16000, label="Sample rate (must match training SR)")
-        temperature = gr.Slider(0.6, 1.5, value=1.0, step=0.05, label="Temperature (higher = more random)")
+        seconds = gr.Slider(0.5, 20.0, value=6.0, step=0.5, label="Seconds to generate")
+        sr2 = gr.Dropdown([8000, 12000, 16000, 22050], value=16000, label="Sample rate")
+        temperature = gr.Slider(0.6, 1.5, value=1.0, step=0.05, label="Temperature")
         seed2 = gr.Number(value=0, precision=0, label="Seed (0 = random)")
         out_name = gr.Textbox(label="Output file name", value="sample.wav")
 
@@ -189,12 +209,6 @@ with gr.Blocks(title="Chordfall (Prototype)") as demo:
             return (sr_c, y)
 
         voc_btn.click(do_vocode, inputs=[carrier_in, mod_in, bands, env_lp], outputs=[voc_out])
-
-    gr.Markdown(
-        "### Notes\n"
-        "- This is a prototype: it may sound noisy/lo-fi at first.\n"
-        "- If you have an NVIDIA GPU, set Device=CUDA in Train tab and install a CUDA PyTorch build.\n"
-    )
 
 
 if __name__ == "__main__":
